@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="utf-8"?>
+<installer-gui-script minSpecVersion="2">
+    <title>Jamf Connect</title>
+    <pkg-ref id="com.jamf.connect" onConclusion="none" version="2.42.0" installKBytes="27373" updateKBytes="0">#JamfConnectMenubar.pkg</pkg-ref>
+    <pkg-ref id="com.jamf.connect.login" onConclusion="none" version="2.42.0" installKBytes="20893" updateKBytes="0">#JamfConnectLogin.pkg</pkg-ref>
+    <pkg-ref id="com.jamf.connect.daemon" onConclusion="none" version="2.x" installKBytes="5040" updateKBytes="0">#JCDaemon.pkg</pkg-ref>
+    <options hostArchitectures="x86_64,arm64" require-scripts="false"/>
+    <allowed-os-versions>
+        <os-version min="13.0"/>
+    </allowed-os-versions>
+    <choices-outline>
+        <line choice="com.jamf.connect"/>
+        <line choice="com.jamf.connect.daemon"/>
+        <line choice="com.jamf.connect.login"/>
+    </choices-outline>
+    <choice id="com.jamf.connect" visible="true" title="Menu Bar App" description="Installs the Jamf Connect Menubar app">
+        <pkg-ref id="com.jamf.connect"/>
+    </choice>
+    <choice id="com.jamf.connect.daemon" visible="false" title="Deamon" description="">
+        <pkg-ref id="com.jamf.connect.daemon"/>
+    </choice>
+    <choice id="com.jamf.connect.login" visible="true" title="Login Window" description="Installs the Jamf Connect Login Window">
+        <pkg-ref id="com.jamf.connect.login"/>
+    </choice>
+    <pkg-ref id="com.jamf.connect">
+        <bundle-version>
+            <bundle CFBundleShortVersionString="2.42.0" CFBundleVersion="6654" id="com.jamf.connect.LauncherApplication" path="Applications/Jamf Connect.app/Contents/Library/LoginItems/LauncherApplication.app"/>
+            <bundle CFBundleShortVersionString="2.42.0" CFBundleVersion="6654" id="com.jamf.connect.unlock.token" path="Applications/Jamf Connect.app/Contents/PlugIns/UnlockToken.appex"/>
+            <bundle CFBundleShortVersionString="2.42.0" CFBundleVersion="6654" id="com.jamf.connect.unlock.login.token" path="Applications/Jamf Connect.app/Contents/MacOS/UnlockLogin.app/Contents/PlugIns/UnlockLoginToken.appex"/>
+            <bundle CFBundleShortVersionString="8.39.0" CFBundleVersion="8.39.0" id="io.sentry.Sentry" path="Applications/Jamf Connect.app/Contents/Frameworks/Sentry.framework"/>
+            <bundle id="zipfoundation.ZIPFoundation.resources" path="Applications/Jamf Connect.app/Contents/Resources/ZIPFoundation_ZIPFoundation.bundle"/>
+            <bundle id="factory.Factory.resources" path="Applications/Jamf Connect.app/Contents/Resources/Factory_Factory.bundle"/>
+            <bundle CFBundleShortVersionString="2.42.0" CFBundleVersion="6654" id="com.jamf.connect" path="Applications/Jamf Connect.app"/>
+            <bundle CFBundleShortVersionString="2.42.0" CFBundleVersion="6654" id="com.jamf.connect.unlock.login" path="Applications/Jamf Connect.app/Contents/MacOS/UnlockLogin.app"/>
+            <bundle id="productlicense.ProductLicense.resources" path="Applications/Jamf Connect.app/Contents/Resources/ProductLicense_ProductLicense.bundle"/>
+            <bundle id="swift-crypto.Crypto.resources" path="Applications/Jamf Connect.app/Contents/Resources/swift-crypto_Crypto.bundle"/>
+            <bundle CFBundleShortVersionString="1.0.5" CFBundleVersion="1" id="menu.nomad.NoMAD-ADAuth" path="Applications/Jamf Connect.app/Contents/Frameworks/NoMAD_ADAuth.framework"/>
+            <bundle id="jamf-connect-temporary-admin.JamfConnectTemporaryAdmin.resources" path="Applications/Jamf Connect.app/Contents/MacOS/UnlockLogin.app/Contents/Resources/jamf-connect-temporary-admin_JamfConnectTemporaryAdmin.bundle"/>
+            <bundle id="jcauth.JCAuthentication.resources" path="Applications/Jamf Connect.app/Contents/Resources/JCAuthentication_JCAuthentication.bundle"/>
+            <bundle id="okta-mobile-swift.AuthFoundation.resources" path="Applications/Jamf Connect.app/Contents/Resources/AuthFoundation_AuthFoundation.bundle"/>
+            <bundle id="okta-idx-swift.OktaIdx.resources" path="Applications/Jamf Connect.app/Contents/Resources/OktaIdx_OktaIdx.bundle"/>
+            <bundle id="ios-client-sdk.LaunchDarkly.resources" path="Applications/Jamf Connect.app/Contents/Resources/LaunchDarkly_LaunchDarkly.bundle"/>
+        </bundle-version>
+    </pkg-ref>
+    <pkg-ref id="com.jamf.connect.daemon">
+        <bundle-version>
+            <bundle id="jamf-connect-temporary-admin.JamfConnectTemporaryAdmin.resources" path="Library/Application Support/JamfConnect/JCDaemon.app/Contents/Resources/jamf-connect-temporary-admin_JamfConnectTemporaryAdmin.bundle"/>
+            <bundle id="zipfoundation.ZIPFoundation.resources" path="Library/Application Support/JamfConnect/JCDaemon.app/Contents/Resources/ZIPFoundation_ZIPFoundation.bundle"/>
+            <bundle CFBundleShortVersionString="2.42.0" CFBundleVersion="550" id="com.jamf.connect.daemon" path="Library/Application Support/JamfConnect/JCDaemon.app"/>
+        </bundle-version>
+    </pkg-ref>
+    <pkg-ref id="com.jamf.connect.login">
+        <bundle-version>
+            <bundle id="ios-client-sdk.LaunchDarkly.resources" path="Library/Security/SecurityAgentPlugins/JamfConnectLogin.bundle/Contents/Resources/LaunchDarkly_LaunchDarkly.bundle"/>
+            <bundle CFBundleShortVersionString="2.42.0" CFBundleVersion="6620" id="com.jamf.connect.login" path="Library/Security/SecurityAgentPlugins/JamfConnectLogin.bundle"/>
+            <bundle id="okta-mobile-swift.AuthFoundation.resources" path="Library/Security/SecurityAgentPlugins/JamfConnectLogin.bundle/Contents/Resources/AuthFoundation_AuthFoundation.bundle"/>
+            <bundle id="jcauth.JCAuthentication.resources" path="Library/Security/SecurityAgentPlugins/JamfConnectLogin.bundle/Contents/Resources/JCAuthentication_JCAuthentication.bundle"/>
+            <bundle id="factory.Factory.resources" path="Library/Security/SecurityAgentPlugins/JamfConnectLogin.bundle/Contents/Resources/Factory_Factory.bundle"/>
+            <bundle CFBundleShortVersionString="8.39.0" CFBundleVersion="8.39.0" id="io.sentry.Sentry" path="Library/Security/SecurityAgentPlugins/JamfConnectLogin.bundle/Contents/Frameworks/Sentry.framework"/>
+            <bundle id="swift-crypto.Crypto.resources" path="Library/Security/SecurityAgentPlugins/JamfConnectLogin.bundle/Contents/Resources/swift-crypto_Crypto.bundle"/>
+            <bundle id="zipfoundation.ZIPFoundation.resources" path="Library/Security/SecurityAgentPlugins/JamfConnectLogin.bundle/Contents/Resources/ZIPFoundation_ZIPFoundation.bundle"/>
+            <bundle id="okta-idx-swift.OktaIdx.resources" path="Library/Security/SecurityAgentPlugins/JamfConnectLogin.bundle/Contents/Resources/OktaIdx_OktaIdx.bundle"/>
+            <bundle id="productlicense.ProductLicense.resources" path="Library/Security/SecurityAgentPlugins/JamfConnectLogin.bundle/Contents/Resources/ProductLicense_ProductLicense.bundle"/>
+        </bundle-version>
+    </pkg-ref>
+    <product version="2.42.0"/>
+</installer-gui-script>

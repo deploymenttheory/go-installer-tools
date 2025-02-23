@@ -1,7 +1,9 @@
 package main
 
 import (
+	"encoding/base64"
 	"flag"
+	"fmt"
 	"os"
 
 	"github.com/deploymenttheory/go-installer-tools/internal/logger"
@@ -10,22 +12,23 @@ import (
 )
 
 func main() {
-	// Initialize logger with info level
-	if err := logger.Init("info"); err != nil {
+	// Parse command line flags.
+	pkgPath := flag.String("pkg", "", "Path to the .pkg file to analyze")
+	checkSig := flag.Bool("check-signature", false, "Check if the package is signed")
+	logLevel := flag.String("log-level", "info", "Log level (debug, info, warn, error)")
+	flag.Parse()
+
+	// Initialize logger with specified level.
+	if err := logger.Init(*logLevel); err != nil {
 		panic("failed to initialize logger: " + err.Error())
 	}
 	defer logger.Sync()
-
-	// Parse command line flags
-	pkgPath := flag.String("pkg", "", "Path to the .pkg file to analyze")
-	checkSig := flag.Bool("check-signature", false, "Check if the package is signed")
-	flag.Parse()
 
 	if *pkgPath == "" {
 		logger.Fatal("Please provide a path to a .pkg file using the -pkg flag")
 	}
 
-	// Open the package file
+	// Open the package file.
 	file, err := os.Open(*pkgPath)
 	if err != nil {
 		logger.Fatal("Error opening file",
@@ -35,10 +38,10 @@ func main() {
 	}
 	defer file.Close()
 
-	// Create a TempFileReader
+	// Create a TempFileReader.
 	tfr := &reader.TempFileReader{Reader: file}
 
-	// Extract metadata
+	// Extract metadata.
 	metadata, err := xar.ExtractXARMetadata(tfr)
 	if err != nil {
 		logger.Fatal("Error extracting metadata",
@@ -47,42 +50,61 @@ func main() {
 		)
 	}
 
-	// Log the metadata with new fields
-	logger.Info("Package metadata extracted successfully",
-		"name", metadata.Name,
-		"displayName", metadata.DisplayName,
-		"bundleName", metadata.BundleName,
-		"version", metadata.Version,
-		"bundleIdentifier", metadata.BundleIdentifier,
-		"minimumSystemVersion", metadata.MinimumSystemVersion,
-		"packageIDs", metadata.PackageIDs,
-		"sha256", metadata.SHASum,
-		"extension", metadata.Extension,
-	)
+	// Print the package report.
+	fmt.Printf("\nPackage Analysis Report\n")
+	fmt.Printf("=====================\n\n")
 
-	// If signature check was requested
+	fmt.Printf("Main Package\n")
+	fmt.Printf("-----------\n")
+	fmt.Printf("Name: %s\n", metadata.Name)
+	fmt.Printf("Display Name: %s\n", metadata.DisplayName)
+	fmt.Printf("Bundle Name: %s\n", metadata.BundleName)
+	fmt.Printf("Version: %s\n", metadata.Version)
+	fmt.Printf("Primary Bundle Identifier: %s\n", metadata.PrimaryBundleIdentifier)
+	fmt.Printf("Minimum supported macOS Version: %s\n", metadata.MinimumOperatingSystemVersion)
+	fmt.Printf("Package IDs: %v\n", metadata.PackageIDs)
+	fmt.Printf("Supported Architecture(s): %s\n", metadata.HostArchitectures)
+	fmt.Printf("Primary Bundle Path: %s\n", metadata.PrimaryBundlePath)
+	fmt.Printf("PKG Size in MB: %.2f\n", metadata.PkgSizeMB)
+	fmt.Printf("SHA256: %s\n", base64.StdEncoding.EncodeToString(metadata.SHA256Sum))
+	fmt.Printf("MD5: %s\n", base64.StdEncoding.EncodeToString(metadata.MD5Sum))
+	fmt.Printf("SHA1: %s\n", base64.StdEncoding.EncodeToString(metadata.SHA1Sum))
+
+	// If any AppBundles were extracted, list them.
+	if len(metadata.AppBundles) > 0 {
+		fmt.Printf("\nApp Bundles\n")
+		fmt.Printf("-----------\n")
+		for i, ab := range metadata.AppBundles {
+			fmt.Printf("Bundle %d:\n", i+1)
+			fmt.Printf("  App Bundle ID: %s\n", ab.ID)
+			fmt.Printf("  CFBundleShortVersionString: %s\n", ab.ShortVersion)
+			fmt.Printf("  App Location Path: %s\n", ab.AppLocationPath)
+		}
+	}
+
+	// If signature check was requested, perform and print results.
 	if *checkSig {
-		// Rewind the file for signature check
+		// Rewind the file for signature check.
 		if _, err := file.Seek(0, 0); err != nil {
 			logger.Fatal("Error rewinding file",
 				"error", err,
 				"path", *pkgPath,
 			)
 		}
-
+		fmt.Printf("\nSignature Check\n")
+		fmt.Printf("--------------\n")
 		err := xar.CheckPKGSignature(file)
 		switch err {
 		case nil:
-			logger.Info("Package is signed ✓")
+			fmt.Printf("Status: Signed ✓\n")
 		case xar.ErrNotSigned:
-			logger.Warn("Package is not signed ✗")
+			fmt.Printf("Status: Not signed ✗\n")
 		case xar.ErrInvalidType:
-			logger.Error("Not a valid XAR package ✗")
+			fmt.Printf("Status: Invalid XAR package ✗\n")
 		default:
-			logger.Fatal("Error checking signature",
-				"error", err,
-				"path", *pkgPath,
-			)
+			fmt.Printf("Status: Error checking signature: %v ✗\n", err)
 		}
 	}
+
+	fmt.Println() // Add final newline
 }

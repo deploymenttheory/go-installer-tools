@@ -20,17 +20,41 @@ import (
 
 var ErrUnsupportedType = errors.New("unsupported file type")
 
-// InstallerMetadata represents the extracted metadata from a package
+// InstallerMetadata represents the extracted metadata from a package from
+// the distribution file found at the root of a .pkg once extracted.
 type InstallerMetadata struct {
-	Name                 string
-	Version              string
-	BundleIdentifier     string
-	SHASum               []byte
-	Extension            string
-	PackageIDs           []string
-	DisplayName          string
-	BundleName           string
-	MinimumSystemVersion string
+	Name                          string
+	Version                       string
+	PrimaryBundleIdentifier       string // Primary Bundle Identifier
+	SHA256Sum                     []byte // SHA256
+	MD5Sum                        []byte
+	SHA1Sum                       []byte
+	SHA512Sum                     []byte // if you need it too
+	Extension                     string
+	PackageIDs                    []string // Unique index of all App Bundle IDs
+	DisplayName                   string
+	BundleName                    string
+	MinimumOperatingSystemVersion string
+	HostArchitectures             string
+	PrimaryBundlePath             string // Installation Path extracted from primary bundle
+	AppBundles                    []AppBundle
+	EmbeddedPackages              []*EmbeddedPackage
+	PkgSizeMB                     float64
+}
+
+type AppBundle struct {
+	ID              string // App Bundle ID (CFBundleIdentifier)
+	ShortVersion    string // CFBundleShortVersionString
+	AppLocationPath string // The installation path (from the bundle's "path" attribute)
+}
+
+// EmbeddedPackage represents a nested package within the main package
+type EmbeddedPackage struct {
+	Name     string
+	Metadata *InstallerMetadata
+	Type     string
+	Offset   int64
+	Length   int64
 }
 
 // ExtractInstallerMetadata extracts the software name and version from the

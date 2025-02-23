@@ -25,7 +25,6 @@ func (t *TempFileReader) Read(p []byte) (n int, err error) {
 
 	n, err = t.Reader.Read(p)
 	if n > 0 {
-		// Write the data to our buffer
 		if n2, err2 := t.buf.Write(p[:n]); err2 != nil {
 			return n2, err2
 		}

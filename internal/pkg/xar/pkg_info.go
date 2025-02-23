@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/deploymenttheory/go-installer-tools/internal/logger"
 	"howett.net/plist"
 )
 
@@ -29,22 +30,81 @@ type BundleInfo struct {
 }
 
 func parsePackageInfoFile(rawData []byte) (*InstallerMetadata, error) {
+	// First detect format
+	var dummy interface{}
+	format, err := plist.Unmarshal(rawData, &dummy)
+	if err == nil {
+		logger.Debug("Detected plist format",
+			"format", plist.FormatNames[format])
+
+		// Create indented version for debugging
+		indentedData, err := plist.MarshalIndent(dummy, format, "    ")
+		if err == nil {
+			logger.Debug("Raw plist content (indented)",
+				"content", string(indentedData))
+		}
+	}
+
 	var packageInfo PackageInfo
 	decoder := plist.NewDecoder(bytes.NewReader(rawData))
+
 	if err := decoder.Decode(&packageInfo); err != nil {
+		logger.Error("Failed to decode PackageInfo plist",
+			"error", err,
+			"format", plist.FormatNames[decoder.Format])
 		return nil, fmt.Errorf("decode PackageInfo plist: %w", err)
 	}
 
+	logger.Debug("Detected plist format after decoding",
+		"format", plist.FormatNames[decoder.Format])
+
+	// Marshal the decoded structure back to XML format for debug logging
+	debugBytes, err := plist.MarshalIndent(packageInfo, plist.XMLFormat, "    ")
+	if err == nil {
+		logger.Debug("Decoded PackageInfo structure",
+			"content", string(debugBytes))
+	}
+
+	// Log detailed bundle information
+	for i, bundle := range packageInfo.Bundles {
+		// Convert each bundle to XML for readable debug output
+		bundleBytes, err := plist.MarshalIndent(bundle, plist.XMLFormat, "    ")
+		if err == nil {
+			logger.Debug("Bundle details",
+				"index", i,
+				"content", string(bundleBytes))
+		}
+	}
+
 	name, identifier, version, packageIDs, displayName, bundleName, minOSVersion := getPackageInfo(&packageInfo)
-	return &InstallerMetadata{
-		Name:                 name,
-		Version:              version,
-		BundleIdentifier:     identifier,
-		PackageIDs:           packageIDs,
-		DisplayName:          displayName,
-		BundleName:           bundleName,
-		MinimumSystemVersion: minOSVersion,
-	}, nil
+
+	// Log the extracted metadata
+	logger.Debug("Extracted package metadata",
+		"name", name,
+		"identifier", identifier,
+		"version", version,
+		"packageIDs", packageIDs,
+		"displayName", displayName,
+		"bundleName", bundleName,
+		"minOSVersion", minOSVersion)
+
+	metadata := &InstallerMetadata{
+		Name:                          name,
+		Version:                       version,
+		PrimaryBundleIdentifier:       identifier,
+		PackageIDs:                    packageIDs,
+		DisplayName:                   displayName,
+		BundleName:                    bundleName,
+		MinimumOperatingSystemVersion: minOSVersion,
+	}
+
+	logger.Info("Successfully parsed PackageInfo file",
+		"name", metadata.Name,
+		"version", metadata.Version,
+		"identifier", metadata.PrimaryBundleIdentifier,
+		"format", plist.FormatNames[decoder.Format])
+
+	return metadata, nil
 }
 
 // sanitizeBundleString cleans and validates bundle-related strings

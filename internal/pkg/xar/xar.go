@@ -31,6 +31,8 @@ import (
 	"io"
 	"strings"
 
+	hash "github.com/deploymenttheory/go-installer-tools/internal/crypto"
+	"github.com/deploymenttheory/go-installer-tools/internal/logger"
 	"github.com/deploymenttheory/go-installer-tools/internal/reader"
 )
 
@@ -101,150 +103,181 @@ type xmlFileData struct {
 type xmlFile struct {
 	XMLName xml.Name `xml:"file"`
 	Name    string   `xml:"name"`
+	Type    string   `xml:"type"`
 	Data    *xmlFileData
 }
 
-// distributionXML represents the structure of the distributionXML.xml
-type distributionXML struct {
-	Title          string                     `xml:"title"`
-	Product        distributionProduct        `xml:"product"`
-	PkgRefs        []distributionPkgRef       `xml:"pkg-ref"`
-	Choices        []distributionChoice       `xml:"choice"`
-	ChoicesOutline distributionChoicesOutline `xml:"choices-outline"`
-}
-
-type packageInfoXML struct {
-	Version         string               `xml:"version,attr"`
-	InstallLocation string               `xml:"install-location,attr"`
-	Identifier      string               `xml:"identifier,attr"`
-	Bundles         []distributionBundle `xml:"bundle"`
-}
-
-// distributionProduct represents the product element
-type distributionProduct struct {
-	ID      string `xml:"id,attr"`
-	Version string `xml:"version,attr"`
-}
-
-// distributionPkgRef represents the pkg-ref element
-type distributionPkgRef struct {
-	ID                string                      `xml:"id,attr"`
-	Version           string                      `xml:"version,attr"`
-	BundleVersions    []distributionBundleVersion `xml:"bundle-version"`
-	MustClose         distributionMustClose       `xml:"must-close"`
-	PackageIdentifier string                      `xml:"packageIdentifier,attr"`
-	InstallKBytes     string                      `xml:"installKBytes,attr"`
-}
-
-type distributionChoice struct {
-	PkgRef distributionPkgRef `xml:"pkg-ref"`
-	Title  string             `xml:"title,attr"`
-	ID     string             `xml:"id,attr"`
-}
-
-type distributionChoicesOutline struct {
-	Lines []distributionLine `xml:"line"`
-}
-
-type distributionLine struct {
-	Choice string `xml:"choice,attr"`
-}
-
-// distributionBundleVersion represents the bundle-version element
-type distributionBundleVersion struct {
-	Bundles []distributionBundle `xml:"bundle"`
-}
-
-// distributionBundle represents the bundle element
-type distributionBundle struct {
-	Path                       string `xml:"path,attr"`
-	ID                         string `xml:"id,attr"`
-	CFBundleShortVersionString string `xml:"CFBundleShortVersionString,attr"`
-}
-
-// distributionMustClose represents the must-close element
-type distributionMustClose struct {
-	Apps []distributionApp `xml:"app"`
-}
-
-// distributionApp represents the app element
-type distributionApp struct {
-	ID string `xml:"id,attr"`
-}
-
 // ExtractXARMetadata extracts the name and version metadata from a .pkg file
-// in the XAR format.
+// in the XAR format. This version skips processing embedded packages.
+// ExtractXARMetadata extracts the name and version metadata from a .pkg file
+// in the XAR format. This version skips processing embedded packages.
 func ExtractXARMetadata(tfr *reader.TempFileReader) (*InstallerMetadata, error) {
-	var hdr xarHeader
+	logger.Debug("Starting XAR metadata extraction")
 
-	h := sha256.New()
-	size, _ := io.Copy(h, tfr) // writes to a hash cannot fail
+	var meta *InstallerMetadata
+
+	// Compute SHA256 hash and capture total file size.
+	sha256Hash := sha256.New()
+	size, _ := io.Copy(sha256Hash, tfr)
+	logger.Debug("Calculated initial hash and size", "size", size)
+	pkgSizeMB := float64(size) / (1024 * 1024)
 
 	if err := tfr.Rewind(); err != nil {
+		logger.Error("Failed to rewind reader", "error", err)
 		return nil, fmt.Errorf("rewind reader: %w", err)
 	}
 
-	// read the file header
+	// Read the file header.
+	var hdr xarHeader
 	if err := binary.Read(tfr, binary.BigEndian, &hdr); err != nil {
+		logger.Error("Failed to decode XAR header", "error", err)
 		return nil, fmt.Errorf("decode xar header: %w", err)
 	}
+	logger.Debug("Read XAR header",
+		"magic", fmt.Sprintf("%x", hdr.Magic),
+		"headerSize", hdr.HeaderSize,
+		"version", hdr.Version,
+		"compressedSize", hdr.CompressedSize,
+		"uncompressedSize", hdr.UncompressedSize,
+		"hashType", hdr.HashType)
 
-	zr, err := zlib.NewReader(io.LimitReader(tfr, hdr.CompressedSize))
-	if err != nil {
-		return nil, fmt.Errorf("create zlib reader: %w", err)
-	}
-	defer zr.Close()
-
-	// decode the TOC data (in XML inside the zlib-compressed data)
+	// Read TOC.
 	var root xmlXar
-	decoder := xml.NewDecoder(zr)
-	decoder.Strict = false
-	if err := decoder.Decode(&root); err != nil {
-		return nil, fmt.Errorf("decode xar xml: %w", err)
+	tocReader, err := zlib.NewReader(io.LimitReader(tfr, hdr.CompressedSize))
+	if err != nil {
+		logger.Error("Failed to create TOC reader", "error", err)
+		return nil, fmt.Errorf("create TOC reader: %w", err)
+	}
+	defer tocReader.Close()
+
+	if err := xml.NewDecoder(tocReader).Decode(&root); err != nil {
+		logger.Error("Failed to decode TOC XML", "error", err)
+		return nil, fmt.Errorf("decode TOC XML: %w", err)
 	}
 
-	// look for the distribution file, with the metadata information
+	// Dump full TOC structure for analysis.
+	tocBytes, _ := xml.MarshalIndent(root, "", "  ")
+	logger.Debug("Full TOC Structure", "toc", string(tocBytes))
+	logger.Debug("Successfully decoded XAR XML TOC", "fileCount", len(root.TOC.Files))
+
+	// Calculate base offset for all files.
 	heapOffset := xarHeaderSize + hdr.CompressedSize
-	var packageInfoFile *xmlFile
+
+	// Variables to hold raw metadata file contents.
+	var distributionContents []byte
+	var packageInfoContents []byte
+
+	// Loop through TOC entries and collect metadata file contents.
 	for _, f := range root.TOC.Files {
+		if f == nil || f.Data == nil {
+			continue
+		}
+		logger.Debug("Examining metadata file", "name", f.Name, "offset", f.Data.Offset, "length", f.Data.Length)
+		contents, err := readCompressedFile(tfr, heapOffset, size, f)
+		if err != nil {
+			logger.Error("Failed to read file", "name", f.Name, "error", err)
+			continue
+		}
 		switch f.Name {
 		case "Distribution":
-			contents, err := readCompressedFile(tfr, heapOffset, size, f)
-			if err != nil {
-				return nil, err
-			}
-
-			meta, err := parseDistributionFile(contents)
-			if err != nil {
-				return nil, fmt.Errorf("parsing Distribution file: %w", err)
-			}
-			meta.SHASum = h.Sum(nil)
-			return meta, nil
-
+			logger.Debug("Found Distribution file", "size", len(contents))
+			distributionContents = contents
 		case "PackageInfo":
-			// If Distribution archive was not found, we will use the top-level PackageInfo archive
-			packageInfoFile = f
+			logger.Debug("Found PackageInfo file", "size", len(contents))
+			packageInfoContents = contents
 		}
 	}
 
-	if packageInfoFile != nil {
-		contents, err := readCompressedFile(tfr, heapOffset, size, packageInfoFile)
-		if err != nil {
-			return nil, err
+	// Prefer the Distribution file if present.
+	if distributionContents != nil {
+		logger.Debug("Processing Distribution file")
+		if distMeta, err := parseDistributionFile(distributionContents); err != nil {
+			logger.Error("Failed to parse Distribution", "error", err)
+		} else {
+			logger.Info("Successfully parsed Distribution file",
+				"name", distMeta.Name,
+				"version", distMeta.Version,
+				"primary bundle id", distMeta.PrimaryBundleIdentifier)
+			meta = distMeta
 		}
-
-		meta, err := parsePackageInfoFile(contents)
-		if err != nil {
-			return nil, fmt.Errorf("parsing PackageInfo file: %w", err)
-		}
-		meta.SHASum = h.Sum(nil)
-		return meta, nil
 	}
 
-	return &InstallerMetadata{SHASum: h.Sum(nil)}, nil
+	// Fallback: if Distribution wasn't found or parsed, try PackageInfo.
+	if meta == nil && packageInfoContents != nil {
+		logger.Debug("Processing PackageInfo file as fallback")
+		if pkgMeta, err := parsePackageInfoFile(packageInfoContents); err != nil {
+			logger.Error("Failed to parse PackageInfo", "error", err)
+		} else {
+			logger.Info("Successfully parsed PackageInfo file",
+				"name", pkgMeta.Name,
+				"version", pkgMeta.Version,
+				"primary bundle id", pkgMeta.PrimaryBundleIdentifier)
+			meta = pkgMeta
+		}
+	}
+
+	// Finalize metadata.
+	if meta == nil {
+		logger.Warn("No metadata found, returning minimal metadata")
+		meta = &InstallerMetadata{SHA256Sum: sha256Hash.Sum(nil)}
+	} else {
+		meta.SHA256Sum = sha256Hash.Sum(nil)
+		meta.PkgSizeMB = pkgSizeMB
+	}
+
+	// Compute additional hashes.
+	if err := tfr.Rewind(); err != nil {
+		logger.Error("Failed to rewind for SHA1", "error", err)
+	} else {
+		sha1Sum, err := hash.ComputeSHA1(tfr)
+		if err != nil {
+			logger.Error("Failed to compute SHA1", "error", err)
+		} else {
+			meta.SHA1Sum = sha1Sum
+		}
+	}
+	if err := tfr.Rewind(); err != nil {
+		logger.Error("Failed to rewind for MD5", "error", err)
+	} else {
+		md5Sum, err := hash.ComputeMD5(tfr)
+		if err != nil {
+			logger.Error("Failed to compute MD5", "error", err)
+		} else {
+			meta.MD5Sum = md5Sum
+		}
+	}
+	if err := tfr.Rewind(); err != nil {
+		logger.Error("Failed to rewind for SHA256", "error", err)
+	} else {
+		sha256Sum, err := hash.ComputeSHA256(tfr)
+		if err != nil {
+			logger.Error("Failed to compute SHA256", "error", err)
+		} else {
+			// Overwrite our previous SHA256 if needed.
+			meta.SHA256Sum = sha256Sum
+		}
+	}
+
+	return meta, nil
 }
 
 func readCompressedFile(rat io.ReaderAt, heapOffset int64, sectionLength int64, f *xmlFile) ([]byte, error) {
+	if f == nil {
+		return nil, fmt.Errorf("nil file provided")
+	}
+
+	if f.Data == nil {
+		return nil, fmt.Errorf("file has no data section")
+	}
+
+	logger.Debug("Starting to read compressed file",
+		"fileName", f.Name,
+		"heapOffset", heapOffset,
+		"sectionLength", sectionLength,
+		"dataOffset", f.Data.Offset,
+		"dataLength", f.Data.Length,
+		"encodingStyle", f.Data.Encoding.Style)
+
 	var fileReader io.Reader
 	heapReader := io.NewSectionReader(rat, heapOffset, sectionLength-heapOffset)
 	fileReader = io.NewSectionReader(heapReader, f.Data.Offset, f.Data.Length)
@@ -254,203 +287,33 @@ func readCompressedFile(rat io.ReaderAt, heapOffset int64, sectionLength int64, 
 	if strings.Contains(f.Data.Encoding.Style, "x-gzip") {
 		// despite the name, x-gzip fails to decode with the gzip package
 		// (invalid header), but it works with zlib.
+		logger.Debug("Using zlib decompression")
 		zr, err := zlib.NewReader(fileReader)
 		if err != nil {
+			logger.Error("Failed to create zlib reader", "error", err)
 			return nil, fmt.Errorf("create zlib reader: %w", err)
 		}
 		defer zr.Close()
 		fileReader = zr
 	} else if strings.Contains(f.Data.Encoding.Style, "x-bzip2") {
+		logger.Debug("Using bzip2 decompression")
 		fileReader = bzip2.NewReader(fileReader)
 	}
 	// TODO: what other compression methods are supported?
 
 	contents, err := io.ReadAll(fileReader)
 	if err != nil {
+		logger.Error("Failed reading file contents",
+			"fileName", f.Name,
+			"error", err)
 		return nil, fmt.Errorf("reading %s file: %w", f.Name, err)
 	}
+
+	logger.Debug("Successfully read compressed file",
+		"fileName", f.Name,
+		"contentLength", len(contents))
+
 	return contents, nil
-}
-
-func parseDistributionFile(rawXML []byte) (*InstallerMetadata, error) {
-	var distXML distributionXML
-	if err := xml.Unmarshal(rawXML, &distXML); err != nil {
-		return nil, fmt.Errorf("unmarshal Distribution XML: %w", err)
-	}
-
-	name, identifier, version, packageIDs := getDistributionInfo(&distXML)
-	return &InstallerMetadata{
-		Name:             name,
-		Version:          version,
-		BundleIdentifier: identifier,
-		PackageIDs:       packageIDs,
-	}, nil
-}
-
-// Set of package names we know are incorrect. If we see these in the Distribution file we should
-// try to get the name some other way.
-var knownBadNames = map[string]struct{}{
-	"DISTRIBUTION_TITLE": {},
-	"MacFULL":            {},
-	"SU_TITLE":           {},
-}
-
-// getDistributionInfo gets the name, bundle identifier and version of a PKG distribution file
-func getDistributionInfo(d *distributionXML) (name string, identifier string, version string, packageIDs []string) {
-	var appVersion string
-
-	// find the package ids that have an installation size
-	packageIDSet := make(map[string]struct{}, 1)
-	for _, pkg := range d.PkgRefs {
-		if pkg.InstallKBytes != "" && pkg.InstallKBytes != "0" {
-			var id string
-			if pkg.PackageIdentifier != "" {
-				id = pkg.PackageIdentifier
-			} else if pkg.ID != "" {
-				id = pkg.ID
-			}
-			if id != "" {
-				packageIDSet[id] = struct{}{}
-			}
-		}
-	}
-	if len(packageIDSet) == 0 {
-		// if we didn't find any package IDs with installation size, then grab all of them
-		for _, pkg := range d.PkgRefs {
-			var id string
-			if pkg.PackageIdentifier != "" {
-				id = pkg.PackageIdentifier
-			} else if pkg.ID != "" {
-				id = pkg.ID
-			}
-			if id != "" {
-				packageIDSet[id] = struct{}{}
-			}
-		}
-	}
-	for id := range packageIDSet {
-		packageIDs = append(packageIDs, id)
-	}
-
-out:
-	// look in all the bundle versions for one that has a `path` attribute
-	// that is not nested, this is generally the case for packages that distribute
-	// `.app` files, which are ultimately picked up as an installed app by osquery
-	for _, pkg := range d.PkgRefs {
-		for _, versions := range pkg.BundleVersions {
-			for _, bundle := range versions.Bundles {
-				if base, isValid := isValidAppFilePath(bundle.Path); isValid {
-					identifier = bundle.ID
-					name = base
-					appVersion = bundle.CFBundleShortVersionString
-					break out
-				}
-			}
-		}
-	}
-
-	// if we didn't find anything, look for any <pkg-ref> elements and grab
-	// the first `<must-close>`, `packageIdentifier` or `id` attribute we
-	// find as the bundle identifier, in that order
-	if identifier == "" {
-		for _, pkg := range d.PkgRefs {
-			if len(pkg.MustClose.Apps) > 0 {
-				identifier = pkg.MustClose.Apps[0].ID
-				break
-			}
-		}
-	}
-
-	// Try to get the identifier based on the choices list, if we have one. Some .pkgs have multiple
-	// sub-pkgs inside, so the choices list helps us be a bit smarter.
-	if identifier == "" && len(d.ChoicesOutline.Lines) > 0 {
-		choicesByID := make(map[string]distributionChoice, len(d.Choices))
-		for _, c := range d.Choices {
-			choicesByID[c.ID] = c
-		}
-
-		for _, l := range d.ChoicesOutline.Lines {
-			c := choicesByID[l.Choice]
-			// Note: we can't create a map of pkg-refs by ID like we do for the choices above
-			// because different pkg-refs can have the same ID attribute. See distribution-go.xml
-			// for an example of this (this case is covered in tests).
-			for _, p := range d.PkgRefs {
-				if p.ID == c.PkgRef.ID {
-					identifier = p.PackageIdentifier
-					if identifier == "" {
-						identifier = p.ID
-					}
-					break
-				}
-			}
-
-			if identifier != "" {
-				// we found it, so we can quit looping
-				break
-			}
-		}
-	}
-
-	if identifier == "" {
-		for _, pkg := range d.PkgRefs {
-			if pkg.PackageIdentifier != "" {
-				identifier = pkg.PackageIdentifier
-				break
-			}
-
-			if pkg.ID != "" {
-				identifier = pkg.ID
-				break
-			}
-		}
-	}
-
-	// if the identifier is still empty, try to use the product id
-	if identifier == "" && d.Product.ID != "" {
-		identifier = d.Product.ID
-	}
-
-	// if package IDs are still empty, use the identifier as the package ID
-	if len(packageIDs) == 0 && identifier != "" {
-		packageIDs = append(packageIDs, identifier)
-	}
-
-	// for the name, try to use the title and fallback to the bundle
-	// identifier
-	if name == "" && d.Title != "" {
-		name = d.Title
-	}
-
-	if _, ok := knownBadNames[name]; name == "" || ok {
-		name = identifier
-
-		// Try to find a <choice> tag that matches the bundle ID for this app. It might have the app
-		// name, so if we find it we can use that.
-		for _, c := range d.Choices {
-			if c.PkgRef.ID == identifier && c.Title != "" {
-				name = c.Title
-			}
-		}
-	}
-
-	// for the version, try to use the top-level product version, if not,
-	// fallback to any version definition alongside the name or the first
-	// version in a pkg-ref we find.
-	if d.Product.Version != "" {
-		version = d.Product.Version
-	}
-	if version == "" && appVersion != "" {
-		version = appVersion
-	}
-	if version == "" {
-		for _, pkgRef := range d.PkgRefs {
-			if pkgRef.Version != "" {
-				version = pkgRef.Version
-			}
-		}
-	}
-
-	return name, identifier, version, packageIDs
 }
 
 // CheckPKGSignature checks if the provided bytes correspond to a signed pkg

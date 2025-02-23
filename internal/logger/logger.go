@@ -1,4 +1,3 @@
-// File: internal/logger/logger.go
 package logger
 
 import (
@@ -21,15 +20,13 @@ func Init(level string) error {
 
 	// Create the encoder configuration
 	encoderConfig := zapcore.EncoderConfig{
-		TimeKey:        "timestamp",
 		LevelKey:       "level",
 		NameKey:        "logger",
 		CallerKey:      "caller",
 		MessageKey:     "msg",
 		StacktraceKey:  "stacktrace",
 		LineEnding:     zapcore.DefaultLineEnding,
-		EncodeLevel:    zapcore.LowercaseLevelEncoder,
-		EncodeTime:     zapcore.ISO8601TimeEncoder,
+		EncodeLevel:    zapcore.CapitalColorLevelEncoder, // Use colors for levels
 		EncodeDuration: zapcore.SecondsDurationEncoder,
 		EncodeCaller:   zapcore.ShortCallerEncoder,
 	}
@@ -39,7 +36,7 @@ func Init(level string) error {
 		Level:            zap.NewAtomicLevelAt(zapLevel),
 		Development:      false,
 		Sampling:         nil,
-		Encoding:         "json",
+		Encoding:         "console", // Use console encoding instead of JSON
 		EncoderConfig:    encoderConfig,
 		OutputPaths:      []string{"stdout"},
 		ErrorOutputPaths: []string{"stderr"},
@@ -55,20 +52,6 @@ func Init(level string) error {
 	}
 
 	// Create the sugar logger
-	sugar = logger.Sugar()
-	return nil
-}
-
-// InitWithConfig initializes the logger with a custom configuration
-func InitWithConfig(config zap.Config) error {
-	logger, err := config.Build(
-		zap.AddCallerSkip(1),
-		zap.AddStacktrace(zapcore.ErrorLevel),
-	)
-	if err != nil {
-		return err
-	}
-
 	sugar = logger.Sugar()
 	return nil
 }
