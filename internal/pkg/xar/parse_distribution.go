@@ -42,7 +42,7 @@ type distributionXML struct {
 // - Unique Package IDs (an index of all App Bundle IDs)
 // - For each pkg-ref with a bundle-version, every bundle with a CFBundleShortVersionString and id is added to AppBundles.
 // - Primary Bundle Identifier and Installation Path are set from the first pkg-ref whose bundle id matches its pkg-ref id.
-func parseDistributionFile(rawXML []byte) (*InstallerMetadata, error) {
+func parseDistributionFile(rawXML []byte) (*PKGInstallerMetadata, error) {
 	var distXML distributionXML
 	if err := xml.Unmarshal(rawXML, &distXML); err != nil {
 		return nil, fmt.Errorf("unmarshal Distribution XML: %w", err)
@@ -123,8 +123,8 @@ func parseDistributionFile(rawXML []byte) (*InstallerMetadata, error) {
 		version = distXML.Product.Version
 	}
 
-	meta := &InstallerMetadata{
-		Name:                          title,
+	meta := &PKGInstallerMetadata{
+		ApplicationTitle:              title,
 		Version:                       version,
 		PrimaryBundleIdentifier:       primaryBundleIdentifier, // Primary Bundle Identifier
 		PackageIDs:                    pkgIDs,                  // Unique index of App Bundle IDs

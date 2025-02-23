@@ -56,9 +56,8 @@ func main() {
 
 	fmt.Printf("Main Package\n")
 	fmt.Printf("-----------\n")
-	fmt.Printf("Name: %s\n", metadata.Name)
+	fmt.Printf("Application Title: %s\n", metadata.ApplicationTitle)
 	fmt.Printf("Display Name: %s\n", metadata.DisplayName)
-	fmt.Printf("Bundle Name: %s\n", metadata.BundleName)
 	fmt.Printf("Version: %s\n", metadata.Version)
 	fmt.Printf("Primary Bundle Identifier: %s\n", metadata.PrimaryBundleIdentifier)
 	fmt.Printf("Minimum supported macOS Version: %s\n", metadata.MinimumOperatingSystemVersion)

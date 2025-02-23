@@ -29,7 +29,7 @@ type BundleInfo struct {
 	LSMinimumSystemVersion     string `plist:"LSMinimumSystemVersion"`
 }
 
-func parsePackageInfoFile(rawData []byte) (*InstallerMetadata, error) {
+func parsePackageInfoFile(rawData []byte) (*PKGInstallerMetadata, error) {
 	// First detect format
 	var dummy interface{}
 	format, err := plist.Unmarshal(rawData, &dummy)
@@ -88,18 +88,17 @@ func parsePackageInfoFile(rawData []byte) (*InstallerMetadata, error) {
 		"bundleName", bundleName,
 		"minOSVersion", minOSVersion)
 
-	metadata := &InstallerMetadata{
-		Name:                          name,
+	metadata := &PKGInstallerMetadata{
+		ApplicationTitle:              name,
 		Version:                       version,
 		PrimaryBundleIdentifier:       identifier,
 		PackageIDs:                    packageIDs,
 		DisplayName:                   displayName,
-		BundleName:                    bundleName,
 		MinimumOperatingSystemVersion: minOSVersion,
 	}
 
 	logger.Info("Successfully parsed PackageInfo file",
-		"name", metadata.Name,
+		"application title", metadata.ApplicationTitle,
 		"version", metadata.Version,
 		"identifier", metadata.PrimaryBundleIdentifier,
 		"format", plist.FormatNames[decoder.Format])

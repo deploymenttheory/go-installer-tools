@@ -20,10 +20,10 @@ import (
 
 var ErrUnsupportedType = errors.New("unsupported file type")
 
-// InstallerMetadata represents the extracted metadata from a package from
+// PKGInstallerMetadata represents the extracted metadata from a package from
 // the distribution file found at the root of a .pkg once extracted.
-type InstallerMetadata struct {
-	Name                          string
+type PKGInstallerMetadata struct {
+	ApplicationTitle              string
 	Version                       string
 	PrimaryBundleIdentifier       string // Primary Bundle Identifier
 	SHA256Sum                     []byte // SHA256
@@ -33,7 +33,6 @@ type InstallerMetadata struct {
 	Extension                     string
 	PackageIDs                    []string // Unique index of all App Bundle IDs
 	DisplayName                   string
-	BundleName                    string
 	MinimumOperatingSystemVersion string
 	HostArchitectures             string
 	PrimaryBundlePath             string // Installation Path extracted from primary bundle
@@ -51,7 +50,7 @@ type AppBundle struct {
 // EmbeddedPackage represents a nested package within the main package
 type EmbeddedPackage struct {
 	Name     string
-	Metadata *InstallerMetadata
+	Metadata *PKGInstallerMetadata
 	Type     string
 	Offset   int64
 	Length   int64
@@ -60,7 +59,7 @@ type EmbeddedPackage struct {
 // ExtractInstallerMetadata extracts the software name and version from the
 // installer file and returns them along with the sha256 hash of the bytes. The
 // format of the installer is determined based on the magic bytes of the content.
-func ExtractInstallerMetadata(tfr *reader.TempFileReader) (*InstallerMetadata, error) {
+func ExtractInstallerMetadata(tfr *reader.TempFileReader) (*PKGInstallerMetadata, error) {
 	br := bufio.NewReader(tfr)
 	extension, err := typeFromBytes(br)
 	if err != nil {
@@ -70,7 +69,7 @@ func ExtractInstallerMetadata(tfr *reader.TempFileReader) (*InstallerMetadata, e
 		return nil, err
 	}
 
-	var meta *InstallerMetadata
+	var meta *PKGInstallerMetadata
 	switch extension {
 	// case "deb":
 	// 	meta, err = ExtractDebMetadata(tfr)

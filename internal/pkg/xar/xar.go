@@ -109,12 +109,10 @@ type xmlFile struct {
 
 // ExtractXARMetadata extracts the name and version metadata from a .pkg file
 // in the XAR format. This version skips processing embedded packages.
-// ExtractXARMetadata extracts the name and version metadata from a .pkg file
-// in the XAR format. This version skips processing embedded packages.
-func ExtractXARMetadata(tfr *reader.TempFileReader) (*InstallerMetadata, error) {
+func ExtractXARMetadata(tfr *reader.TempFileReader) (*PKGInstallerMetadata, error) {
 	logger.Debug("Starting XAR metadata extraction")
 
-	var meta *InstallerMetadata
+	var meta *PKGInstallerMetadata
 
 	// Compute SHA256 hash and capture total file size.
 	sha256Hash := sha256.New()
@@ -195,7 +193,7 @@ func ExtractXARMetadata(tfr *reader.TempFileReader) (*InstallerMetadata, error) 
 			logger.Error("Failed to parse Distribution", "error", err)
 		} else {
 			logger.Info("Successfully parsed Distribution file",
-				"name", distMeta.Name,
+				"Application Title ", distMeta.ApplicationTitle,
 				"version", distMeta.Version,
 				"primary bundle id", distMeta.PrimaryBundleIdentifier)
 			meta = distMeta
@@ -209,7 +207,7 @@ func ExtractXARMetadata(tfr *reader.TempFileReader) (*InstallerMetadata, error) 
 			logger.Error("Failed to parse PackageInfo", "error", err)
 		} else {
 			logger.Info("Successfully parsed PackageInfo file",
-				"name", pkgMeta.Name,
+				"Application Title ", pkgMeta.ApplicationTitle,
 				"version", pkgMeta.Version,
 				"primary bundle id", pkgMeta.PrimaryBundleIdentifier)
 			meta = pkgMeta
@@ -219,7 +217,7 @@ func ExtractXARMetadata(tfr *reader.TempFileReader) (*InstallerMetadata, error) 
 	// Finalize metadata.
 	if meta == nil {
 		logger.Warn("No metadata found, returning minimal metadata")
-		meta = &InstallerMetadata{SHA256Sum: sha256Hash.Sum(nil)}
+		meta = &PKGInstallerMetadata{SHA256Sum: sha256Hash.Sum(nil)}
 	} else {
 		meta.SHA256Sum = sha256Hash.Sum(nil)
 		meta.PkgSizeMB = pkgSizeMB
