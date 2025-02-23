@@ -39,6 +39,7 @@ type PKGInstallerMetadata struct {
 	AppBundles                    []AppBundle
 	EmbeddedPackages              []*EmbeddedPackage
 	PkgSizeMB                     float64
+	IsSigned                      bool
 }
 
 type AppBundle struct {

@@ -49,20 +49,7 @@ func parsePackageInfoFile(rawData []byte) (*PKGInstallerMetadata, error) {
 	decoder := plist.NewDecoder(bytes.NewReader(rawData))
 
 	if err := decoder.Decode(&packageInfo); err != nil {
-		logger.Error("Failed to decode PackageInfo plist",
-			"error", err,
-			"format", plist.FormatNames[decoder.Format])
 		return nil, fmt.Errorf("decode PackageInfo plist: %w", err)
-	}
-
-	logger.Debug("Detected plist format after decoding",
-		"format", plist.FormatNames[decoder.Format])
-
-	// Marshal the decoded structure back to XML format for debug logging
-	debugBytes, err := plist.MarshalIndent(packageInfo, plist.XMLFormat, "    ")
-	if err == nil {
-		logger.Debug("Decoded PackageInfo structure",
-			"content", string(debugBytes))
 	}
 
 	// Log detailed bundle information

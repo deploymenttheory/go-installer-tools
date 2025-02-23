@@ -65,6 +65,7 @@ func main() {
 	fmt.Printf("Supported Architecture(s): %s\n", metadata.HostArchitectures)
 	fmt.Printf("Primary Bundle Path: %s\n", metadata.PrimaryBundlePath)
 	fmt.Printf("PKG Size in MB: %.2f\n", metadata.PkgSizeMB)
+	fmt.Printf("Is Signed: %t\n", metadata.IsSigned)
 	fmt.Printf("SHA256: %s\n", base64.StdEncoding.EncodeToString(metadata.SHA256Sum))
 	fmt.Printf("MD5: %s\n", base64.StdEncoding.EncodeToString(metadata.MD5Sum))
 	fmt.Printf("SHA1: %s\n", base64.StdEncoding.EncodeToString(metadata.SHA1Sum))

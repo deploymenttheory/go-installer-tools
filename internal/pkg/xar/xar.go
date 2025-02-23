@@ -113,33 +113,49 @@ func ExtractXARMetadata(tfr *reader.TempFileReader) (*PKGInstallerMetadata, erro
 	logger.Debug("Starting XAR metadata extraction")
 
 	var meta *PKGInstallerMetadata
+	var isSignedStatus bool
 
-	// Compute SHA256 hash and capture total file size.
+	// Compute SHA256 hash and capture total file size
 	sha256Hash := sha256.New()
 	size, _ := io.Copy(sha256Hash, tfr)
 	logger.Debug("Calculated initial hash and size", "size", size)
 	pkgSizeMB := float64(size) / (1024 * 1024)
+
+	// Check for package signature
+	if err := tfr.Rewind(); err != nil {
+		logger.Error("Failed to rewind reader for signature check", "error", err)
+		return nil, fmt.Errorf("rewind reader for signature check: %w", err)
+	}
+
+	// Check signature status
+	err := CheckPKGSignature(tfr)
+	if err == nil {
+		isSignedStatus = true
+		logger.Debug("Package is signed")
+	} else if err == ErrNotSigned {
+		isSignedStatus = false
+		logger.Debug("Package is not signed")
+	} else if err == ErrInvalidType {
+		logger.Error("Invalid XAR file type")
+		return nil, err
+	} else {
+		logger.Error("Error checking package signature", "error", err)
+		return nil, fmt.Errorf("check package signature: %w", err)
+	}
 
 	if err := tfr.Rewind(); err != nil {
 		logger.Error("Failed to rewind reader", "error", err)
 		return nil, fmt.Errorf("rewind reader: %w", err)
 	}
 
-	// Read the file header.
+	// Read the file header
 	var hdr xarHeader
 	if err := binary.Read(tfr, binary.BigEndian, &hdr); err != nil {
 		logger.Error("Failed to decode XAR header", "error", err)
 		return nil, fmt.Errorf("decode xar header: %w", err)
 	}
-	logger.Debug("Read XAR header",
-		"magic", fmt.Sprintf("%x", hdr.Magic),
-		"headerSize", hdr.HeaderSize,
-		"version", hdr.Version,
-		"compressedSize", hdr.CompressedSize,
-		"uncompressedSize", hdr.UncompressedSize,
-		"hashType", hdr.HashType)
 
-	// Read TOC.
+	// Read TOC
 	var root xmlXar
 	tocReader, err := zlib.NewReader(io.LimitReader(tfr, hdr.CompressedSize))
 	if err != nil {
@@ -153,19 +169,19 @@ func ExtractXARMetadata(tfr *reader.TempFileReader) (*PKGInstallerMetadata, erro
 		return nil, fmt.Errorf("decode TOC XML: %w", err)
 	}
 
-	// Dump full TOC structure for analysis.
+	// Dump full TOC structure for analysis
 	tocBytes, _ := xml.MarshalIndent(root, "", "  ")
 	logger.Debug("Full TOC Structure", "toc", string(tocBytes))
 	logger.Debug("Successfully decoded XAR XML TOC", "fileCount", len(root.TOC.Files))
 
-	// Calculate base offset for all files.
+	// Calculate base offset for all files
 	heapOffset := xarHeaderSize + hdr.CompressedSize
 
-	// Variables to hold raw metadata file contents.
+	// Variables to hold raw metadata file contents
 	var distributionContents []byte
 	var packageInfoContents []byte
 
-	// Loop through TOC entries and collect metadata file contents.
+	// Loop through TOC entries and collect metadata file contents
 	for _, f := range root.TOC.Files {
 		if f == nil || f.Data == nil {
 			continue
@@ -186,44 +202,42 @@ func ExtractXARMetadata(tfr *reader.TempFileReader) (*PKGInstallerMetadata, erro
 		}
 	}
 
-	// Prefer the Distribution file if present.
+	// Prefer the Distribution file if present
 	if distributionContents != nil {
 		logger.Debug("Processing Distribution file")
 		if distMeta, err := parseDistributionFile(distributionContents); err != nil {
 			logger.Error("Failed to parse Distribution", "error", err)
 		} else {
-			logger.Info("Successfully parsed Distribution file",
-				"Application Title ", distMeta.ApplicationTitle,
-				"version", distMeta.Version,
-				"primary bundle id", distMeta.PrimaryBundleIdentifier)
 			meta = distMeta
+			meta.IsSigned = isSignedStatus // Set the signature status we detected earlier
 		}
 	}
 
-	// Fallback: if Distribution wasn't found or parsed, try PackageInfo.
+	// Fallback: if Distribution wasn't found or parsed, try PackageInfo
 	if meta == nil && packageInfoContents != nil {
 		logger.Debug("Processing PackageInfo file as fallback")
 		if pkgMeta, err := parsePackageInfoFile(packageInfoContents); err != nil {
 			logger.Error("Failed to parse PackageInfo", "error", err)
 		} else {
-			logger.Info("Successfully parsed PackageInfo file",
-				"Application Title ", pkgMeta.ApplicationTitle,
-				"version", pkgMeta.Version,
-				"primary bundle id", pkgMeta.PrimaryBundleIdentifier)
 			meta = pkgMeta
+			meta.IsSigned = isSignedStatus // Set the signature status we detected earlier
 		}
 	}
 
-	// Finalize metadata.
+	// Finalize metadata
 	if meta == nil {
 		logger.Warn("No metadata found, returning minimal metadata")
-		meta = &PKGInstallerMetadata{SHA256Sum: sha256Hash.Sum(nil)}
+		meta = &PKGInstallerMetadata{
+			SHA256Sum: sha256Hash.Sum(nil),
+			IsSigned:  false, // Set default value for new packages
+		}
 	} else {
 		meta.SHA256Sum = sha256Hash.Sum(nil)
 		meta.PkgSizeMB = pkgSizeMB
+		// IsSigned is already set from earlier check
 	}
 
-	// Compute additional hashes.
+	// Compute additional hashes
 	if err := tfr.Rewind(); err != nil {
 		logger.Error("Failed to rewind for SHA1", "error", err)
 	} else {
@@ -251,7 +265,7 @@ func ExtractXARMetadata(tfr *reader.TempFileReader) (*PKGInstallerMetadata, erro
 		if err != nil {
 			logger.Error("Failed to compute SHA256", "error", err)
 		} else {
-			// Overwrite our previous SHA256 if needed.
+			// Overwrite our previous SHA256 if needed
 			meta.SHA256Sum = sha256Sum
 		}
 	}
@@ -268,14 +282,6 @@ func readCompressedFile(rat io.ReaderAt, heapOffset int64, sectionLength int64, 
 		return nil, fmt.Errorf("file has no data section")
 	}
 
-	logger.Debug("Starting to read compressed file",
-		"fileName", f.Name,
-		"heapOffset", heapOffset,
-		"sectionLength", sectionLength,
-		"dataOffset", f.Data.Offset,
-		"dataLength", f.Data.Length,
-		"encodingStyle", f.Data.Encoding.Style)
-
 	var fileReader io.Reader
 	heapReader := io.NewSectionReader(rat, heapOffset, sectionLength-heapOffset)
 	fileReader = io.NewSectionReader(heapReader, f.Data.Offset, f.Data.Length)
@@ -288,7 +294,6 @@ func readCompressedFile(rat io.ReaderAt, heapOffset int64, sectionLength int64, 
 		logger.Debug("Using zlib decompression")
 		zr, err := zlib.NewReader(fileReader)
 		if err != nil {
-			logger.Error("Failed to create zlib reader", "error", err)
 			return nil, fmt.Errorf("create zlib reader: %w", err)
 		}
 		defer zr.Close()
@@ -301,15 +306,8 @@ func readCompressedFile(rat io.ReaderAt, heapOffset int64, sectionLength int64, 
 
 	contents, err := io.ReadAll(fileReader)
 	if err != nil {
-		logger.Error("Failed reading file contents",
-			"fileName", f.Name,
-			"error", err)
 		return nil, fmt.Errorf("reading %s file: %w", f.Name, err)
 	}
-
-	logger.Debug("Successfully read compressed file",
-		"fileName", f.Name,
-		"contentLength", len(contents))
 
 	return contents, nil
 }
